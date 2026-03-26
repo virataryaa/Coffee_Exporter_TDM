@@ -53,15 +53,15 @@ _D = dict(
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="-apple-system, Helvetica Neue, sans-serif", color="#1d1d1f", size=10),
 )
-# Muted palette for non-highlighted years
 _PAL = ["#7bafd4","#f4a460","#82c982","#c9a0dc","#e8c96a","#7ec8c0","#e89090","#a0aad4",
         "#c8a06e","#90b8a0","#d4c0a0","#a8c0d8"]
 
 
 def lbl(text: str) -> str:
-    """Navy blue section label with light grey text."""
+    """Navy blue centered section label."""
     return (
-        f"<div style='background:#0a2463;padding:5px 13px;border-radius:5px;margin:0 0 5px 0'>"
+        f"<div style='background:#0a2463;padding:5px 13px;border-radius:5px;"
+        f"margin:0 0 5px 0;text-align:center'>"
         f"<span style='font-size:0.78rem;font-weight:500;letter-spacing:0.07em;"
         f"text-transform:uppercase;color:#dde4f0'>{text}</span></div>"
     )
@@ -80,7 +80,8 @@ data_path = Path(__file__).parent / COMMODITY_FILES[commodity]
 def load_data(path: str) -> pd.DataFrame:
     df = pd.read_parquet(path)
     df["DATE"] = pd.to_datetime(df[["YEAR", "MONTH"]].assign(DAY=1))
-    df["BAGS"] = df["GBE"] * (1000 / 60)
+    # GBE tons → thousands of 60kg bags  (÷ 60 gives k-bags directly)
+    df["BAGS"] = df["GBE"] / 60
     return df
 
 
@@ -112,14 +113,10 @@ with top_right:
             sel_partners = st.multiselect("Partner", all_partners, default=all_partners)
 
 # ── Apply filters ─────────────────────────────────────────────────────────────
-all_reporters_all = sorted(df["REPORTER"].unique())
-all_regions_all   = sorted(df["REGION"].unique())
-all_partners_all  = sorted(df["PARTNER"].dropna().unique())
-
 mask = (
-    df["REPORTER"].isin(sel_reporters or all_reporters_all)
-    & df["REGION"].isin(sel_regions or all_regions_all)
-    & df["PARTNER"].isin(sel_partners or all_partners_all)
+    df["REPORTER"].isin(sel_reporters or all_reporters)
+    & df["REGION"].isin(sel_regions or all_regions)
+    & df["PARTNER"].isin(sel_partners or all_partners)
 )
 if all_tags:
     mask &= df["COMMODITY_TAG"].isin(sel_tags or all_tags)
@@ -142,25 +139,29 @@ else:
     latest_common_label = "Sep"
     dff_disp            = dff.copy()
 
+# ── Drop the oldest (first) crop year from all visuals ────────────────────────
+if not dff_disp.empty and dff_disp["CROP_YEAR"].nunique() > 1:
+    oldest_cy = sorted(dff_disp["CROP_YEAR"].unique())[0]
+    dff_disp  = dff_disp[dff_disp["CROP_YEAR"] != oldest_cy].copy()
+
 # Previous crop year (for line colouring)
 _sorted_cy = sorted(dff_disp["CROP_YEAR"].unique()) if not dff_disp.empty else []
 prev_cy    = _sorted_cy[-2] if len(_sorted_cy) >= 2 else None
 
 
 def cy_style(cy):
-    """Return (color, line_width) for a crop year line."""
     if cy == latest_cy:
         return "#1d1d1f", 2.5
     if cy == prev_cy:
         return "#c0392b", 2.0
-    return None, 1.4   # None → use palette
+    return None, 1.4
 
 
 # ── Title ─────────────────────────────────────────────────────────────────────
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown(
     f"### {commodity} Export Trade Flows &nbsp;"
-    f"<span style='font-size:0.85rem;font-weight:400;color:#6e6e73'>GBE · 60kg Bags</span>",
+    f"<span style='font-size:0.85rem;font-weight:400;color:#6e6e73'>GBE · k Bags</span>",
     unsafe_allow_html=True,
 )
 _cy_list = sorted(dff_disp["CROP_YEAR"].unique()) if not dff_disp.empty else ["—", "—"]
@@ -168,7 +169,7 @@ st.caption(
     f"Crop years {_cy_list[0]} – {_cy_list[-1]}  ·  "
     f"{dff_disp['REPORTER'].nunique()} reporters  ·  "
     f"Latest month: {latest_common_label} ({latest_cy})  ·  "
-    f"Bold black = {latest_cy}  ·  Red = {prev_cy}"
+    f"Bold black = {latest_cy}  ·  Red = {prev_cy}  ·  All volumes in thousands of 60kg bags"
 )
 st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -191,7 +192,7 @@ def build_pivot(data: pd.DataFrame):
 pivot, complete = build_pivot(dff_disp)
 complete_years  = sorted(complete[complete].index.tolist())
 
-# ── Pre-compute YTD (needed in Row 2 and Row 4) ───────────────────────────────
+# ── Pre-compute YTD ───────────────────────────────────────────────────────────
 ytd = (
     dff_disp[dff_disp["CROP_MONTH_NUM"] <= latest_common_num]
     .groupby("CROP_YEAR")["BAGS"].sum().reset_index()
@@ -199,21 +200,20 @@ ytd = (
 )
 ytd["YOY_PCT"] = ytd["YTD_BAGS"].pct_change() * 100
 
+_fmt = lambda x: f"{x:,.0f}" if pd.notna(x) else ""
+
 # =============================================================================
-# ROW 1 — Heatmap with embedded Total column
+# ROW 1 — Heatmap (full width, k Bags)
 # =============================================================================
-st.markdown(lbl("Flow Heatmap — GBE in 60kg Bags · Monthly Exports by Crop Year"), unsafe_allow_html=True)
+st.markdown(lbl(f"Flow Heatmap (GBE in k Bags) · Monthly Exports by Crop Year"), unsafe_allow_html=True)
 st.caption(
     f"Latest crop year ({latest_cy}) capped at {latest_common_label}  ·  "
-    f"No-data cells = light grey  ·  Total = sum of available months"
+    f"Light grey = no data  ·  Total shown only for complete Oct–Sep years"
 )
 
 disp = pivot[MONTH_ORDER].astype(float)
 disp[disp == 0] = np.nan
-# Total only for fully complete crop years (all 12 months present)
 disp["Total"] = np.where(complete, disp[MONTH_ORDER].sum(axis=1), np.nan)
-
-_fmt = lambda x: f"{x:,.0f}" if pd.notna(x) else ""
 
 styled = (
     disp.style
@@ -221,28 +221,49 @@ styled = (
     .highlight_null(color="#f0f0f0")
     .format(_fmt, subset=MONTH_ORDER)
     .format(_fmt, subset=["Total"])
-    .set_properties(**{"text-align": "center", "font-size": "9px"})
+    .set_properties(**{"text-align": "center", "font-size": "8px"})
     .set_properties(
         subset=["Total"],
-        **{"font-weight": "700", "background-color": "#f5f5f7", "border-left": "2px solid #d8d8e0", "font-size": "9px"},
+        **{"font-weight": "700", "background-color": "#f5f5f7",
+           "border-left": "2px solid #d8d8e0", "font-size": "8px"},
     )
     .set_table_styles([
-        {"selector": "th", "props": [("text-align", "center"), ("font-size", "9px"), ("font-weight", "600")]},
-        {"selector": "td", "props": [("text-align", "center"), ("font-size", "9px")]},
+        {"selector": "th", "props": [("text-align","center"),("font-size","8px"),("font-weight","600")]},
+        {"selector": "td", "props": [("text-align","center"),("font-size","8px")]},
     ])
 )
-tbl_h = min(340, 26 * len(disp) + 42)
+tbl_h = min(300, 22 * len(disp) + 38)
 st.dataframe(styled, use_container_width=True, height=tbl_h)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =============================================================================
-# ROW 2 — Min/Max/Avg vs Latest  |  YTD Table
+# ROW 2 — Rolling Exports  |  Min / Max / Avg vs Latest
 # =============================================================================
-col_mm, col_ytd_tbl = st.columns([3, 2])
+col_roll, col_mm = st.columns(2)
+
+with col_roll:
+    st.markdown(lbl("Rolling Exports (GBE in k Bags)"), unsafe_allow_html=True)
+    roll_choice = st.radio("Window", ["1m","3m","6m","12m"], index=3, horizontal=True)
+    window = {"1m": 1, "3m": 3, "6m": 6, "12m": 12}[roll_choice]
+    monthly = dff_disp.groupby("DATE")["BAGS"].sum().reset_index().sort_values("DATE")
+    monthly["ROLLING"] = monthly["BAGS"].rolling(window).sum()
+    fig5 = go.Figure(go.Scatter(
+        x=monthly["DATE"], y=monthly["ROLLING"],
+        mode="lines", line=dict(color="#4a7fb5", width=1.8),
+        fill="tozeroy", fillcolor="rgba(74,127,181,0.07)",
+    ))
+    fig5.update_layout(
+        height=210,
+        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+        yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
+        margin=dict(t=4, b=10, l=4, r=4),
+        **_D,
+    )
+    st.plotly_chart(fig5, use_container_width=True)
 
 with col_mm:
-    st.markdown(lbl("Min / Max / Avg vs Latest — GBE in 60kg Bags"), unsafe_allow_html=True)
+    st.markdown(lbl("Min / Max / Avg vs Latest (GBE in k Bags)"), unsafe_allow_html=True)
     if complete_years:
         last5 = complete_years[-5:]
         ref   = pivot.loc[last5, MONTH_ORDER]
@@ -269,20 +290,6 @@ with col_mm:
     else:
         st.info("No complete crop years for reference.")
 
-with col_ytd_tbl:
-    st.markdown(lbl(f"YTD · Oct – {latest_common_label} — GBE in 60kg Bags"), unsafe_allow_html=True)
-    tbl2 = ytd.copy()
-    tbl2["YTD_FMT"] = tbl2["YTD_BAGS"].map(lambda x: f"{x:,.0f}")
-    tbl2["YOY_FMT"] = tbl2["YOY_PCT"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
-    st.dataframe(
-        tbl2[["CROP_YEAR","YTD_FMT","YOY_FMT"]].rename(columns={
-            "CROP_YEAR": "Crop Year",
-            "YTD_FMT":  f"YTD Bags (Oct–{latest_common_label})",
-            "YOY_FMT":  "YoY %",
-        }),
-        use_container_width=True, hide_index=True, height=210,
-    )
-
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =============================================================================
@@ -296,19 +303,18 @@ sea["CROP_MONTH"] = sea["CROP_MONTH_NUM"].map(NUM_TO_MONTH)
 all_sea_cy  = sorted(sea["CROP_YEAR"].unique())
 default_sea = all_sea_cy[-6:] if len(all_sea_cy) >= 6 else all_sea_cy
 
-# Min/Max/Avg reference bands
 pivot_s, complete_s  = build_pivot(dff_disp)
 complete_years_s     = sorted(complete_s[complete_s].index.tolist())
 ref_band: dict = {}
 if complete_years_s:
-    last5_s   = complete_years_s[-5:]
-    ref_s     = pivot_s.loc[last5_s, MONTH_ORDER]
-    ref_band  = {"max": ref_s.max(), "min": ref_s.min(), "avg": ref_s.mean(), "n": len(last5_s)}
+    last5_s  = complete_years_s[-5:]
+    ref_s    = pivot_s.loc[last5_s, MONTH_ORDER]
+    ref_band = {"max": ref_s.max(), "min": ref_s.min(), "avg": ref_s.mean(), "n": len(last5_s)}
 
 col_sea, col_cum = st.columns(2)
 
 with col_sea:
-    st.markdown(lbl("Seasonal — GBE in 60kg Bags · Monthly by Crop Year"), unsafe_allow_html=True)
+    st.markdown(lbl("Seasonal (GBE in k Bags) · Monthly by Crop Year"), unsafe_allow_html=True)
     sel_sea = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="sea_sel")
     fig3 = go.Figure()
     if ref_band:
@@ -333,7 +339,7 @@ with col_sea:
     st.plotly_chart(fig3, use_container_width=True)
 
 with col_cum:
-    st.markdown(lbl("Cumulative Exports — GBE in 60kg Bags · by Crop Year"), unsafe_allow_html=True)
+    st.markdown(lbl("Cumulative Exports (GBE in k Bags) · by Crop Year"), unsafe_allow_html=True)
     sel_cum = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="cum_sel")
     fig4 = go.Figure()
     pal_i = 0
@@ -357,32 +363,26 @@ with col_cum:
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =============================================================================
-# ROW 4 — Rolling  |  YTD Trend + YoY
+# ROW 4 — YTD Table  |  YTD Trend + YoY %
 # =============================================================================
-col_roll, col_ytd_charts = st.columns(2)
+col_ytd_tbl, col_ytd_charts = st.columns([2, 3])
 
-with col_roll:
-    st.markdown(lbl("Rolling Exports — GBE in 60kg Bags"), unsafe_allow_html=True)
-    roll_choice = st.radio("Window", ["1m","3m","6m","12m"], index=3, horizontal=True)
-    window = {"1m": 1, "3m": 3, "6m": 6, "12m": 12}[roll_choice]
-    monthly = dff_disp.groupby("DATE")["BAGS"].sum().reset_index().sort_values("DATE")
-    monthly["ROLLING"] = monthly["BAGS"].rolling(window).sum()
-    fig5 = go.Figure(go.Scatter(
-        x=monthly["DATE"], y=monthly["ROLLING"],
-        mode="lines", line=dict(color="#4a7fb5", width=1.8),
-        fill="tozeroy", fillcolor="rgba(74,127,181,0.07)",
-    ))
-    fig5.update_layout(
-        height=210,
-        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
-        yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        margin=dict(t=4, b=10, l=4, r=4),
-        **_D,
+with col_ytd_tbl:
+    st.markdown(lbl(f"YTD · Oct – {latest_common_label} (GBE in k Bags)"), unsafe_allow_html=True)
+    tbl2 = ytd.copy()
+    tbl2["YTD_FMT"] = tbl2["YTD_BAGS"].map(lambda x: f"{x:,.0f}")
+    tbl2["YOY_FMT"] = tbl2["YOY_PCT"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
+    st.dataframe(
+        tbl2[["CROP_YEAR","YTD_FMT","YOY_FMT"]].rename(columns={
+            "CROP_YEAR": "Crop Year",
+            "YTD_FMT":  f"YTD k Bags (Oct–{latest_common_label})",
+            "YOY_FMT":  "YoY %",
+        }),
+        use_container_width=True, hide_index=True, height=210,
     )
-    st.plotly_chart(fig5, use_container_width=True)
 
 with col_ytd_charts:
-    st.markdown(lbl("YTD Trend + YoY % Change — GBE in 60kg Bags"), unsafe_allow_html=True)
+    st.markdown(lbl("YTD Trend + YoY % Change (GBE in k Bags)"), unsafe_allow_html=True)
     ya, yb = st.columns(2)
     with ya:
         fig6 = go.Figure(go.Scatter(
@@ -418,4 +418,4 @@ with col_ytd_charts:
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("<hr>", unsafe_allow_html=True)
-st.caption("TDM Trade Flow Dashboard  ·  ETG Softs  ·  60kg bags (GBE)")
+st.caption("TDM Trade Flow Dashboard  ·  ETG Softs  ·  k Bags = thousands of 60kg bags (GBE)")
