@@ -59,10 +59,11 @@ _PAL = ["#7bafd4","#f4a460","#82c982","#c9a0dc","#e8c96a","#7ec8c0","#e89090","#
 
 
 def lbl(text: str) -> str:
-    """Small uppercase section label."""
+    """Navy blue section label with light grey text."""
     return (
-        f"<p style='font-size:0.66rem;font-weight:600;letter-spacing:0.13em;"
-        f"text-transform:uppercase;color:#6e6e73;margin:0 0 2px 0'>{text}</p>"
+        f"<div style='background:#0a2463;padding:5px 13px;border-radius:5px;margin:0 0 5px 0'>"
+        f"<span style='font-size:0.78rem;font-weight:500;letter-spacing:0.07em;"
+        f"text-transform:uppercase;color:#dde4f0'>{text}</span></div>"
     )
 
 
@@ -92,7 +93,7 @@ df = load_data(str(data_path))
 # ── Filters (expander) ────────────────────────────────────────────────────────
 with top_right:
     with st.expander("⚙  Filters", expanded=False):
-        fc1, fc2, fc3, fc4, fc5 = st.columns([2, 1.4, 1.4, 2, 2.5])
+        fc1, fc2, fc3, fc4 = st.columns([2, 1.5, 1.5, 2])
 
         all_reporters = sorted(df["REPORTER"].unique())
         with fc1:
@@ -110,21 +111,15 @@ with top_right:
         with fc4:
             sel_partners = st.multiselect("Partner", all_partners, default=all_partners)
 
-        all_cy = sorted(df["CROP_YEAR"].unique())
-        with fc5:
-            sel_cy_range = st.select_slider(
-                "Crop Year Range", options=all_cy, value=(all_cy[0], all_cy[-1])
-            )
-
 # ── Apply filters ─────────────────────────────────────────────────────────────
-i0, i1    = all_cy.index(sel_cy_range[0]), all_cy.index(sel_cy_range[1])
-cy_window = all_cy[i0: i1 + 1]
+all_reporters_all = sorted(df["REPORTER"].unique())
+all_regions_all   = sorted(df["REGION"].unique())
+all_partners_all  = sorted(df["PARTNER"].dropna().unique())
 
 mask = (
-    df["CROP_YEAR"].isin(cy_window)
-    & df["REPORTER"].isin(sel_reporters or all_reporters)
-    & df["REGION"].isin(sel_regions or all_regions)
-    & df["PARTNER"].isin(sel_partners or all_partners)
+    df["REPORTER"].isin(sel_reporters or all_reporters_all)
+    & df["REGION"].isin(sel_regions or all_regions_all)
+    & df["PARTNER"].isin(sel_partners or all_partners_all)
 )
 if all_tags:
     mask &= df["COMMODITY_TAG"].isin(sel_tags or all_tags)
@@ -168,8 +163,9 @@ st.markdown(
     f"<span style='font-size:0.85rem;font-weight:400;color:#6e6e73'>GBE · 60kg Bags</span>",
     unsafe_allow_html=True,
 )
+_cy_list = sorted(dff_disp["CROP_YEAR"].unique()) if not dff_disp.empty else ["—", "—"]
 st.caption(
-    f"Crop years {sel_cy_range[0]} – {sel_cy_range[1]}  ·  "
+    f"Crop years {_cy_list[0]} – {_cy_list[-1]}  ·  "
     f"{dff_disp['REPORTER'].nunique()} reporters  ·  "
     f"Latest month: {latest_common_label} ({latest_cy})  ·  "
     f"Bold black = {latest_cy}  ·  Red = {prev_cy}"
@@ -214,26 +210,28 @@ st.caption(
 
 disp = pivot[MONTH_ORDER].astype(float)
 disp[disp == 0] = np.nan
-# Add Total column — sum ignores NaN; replace 0 (all-NaN row) with NaN
-disp["Total"] = disp[MONTH_ORDER].sum(axis=1).replace(0, np.nan)
+# Total only for fully complete crop years (all 12 months present)
+disp["Total"] = np.where(complete, disp[MONTH_ORDER].sum(axis=1), np.nan)
+
+_fmt = lambda x: f"{x:,.0f}" if pd.notna(x) else ""
 
 styled = (
     disp.style
     .background_gradient(cmap="RdYlGn", axis=None, subset=MONTH_ORDER)
     .highlight_null(color="#f0f0f0")
-    .format("{:,.0f}", na_rep="", subset=MONTH_ORDER)
-    .format("{:,.0f}", na_rep="", subset=["Total"])
-    .set_properties(**{"text-align": "center", "font-size": "11px"})
+    .format(_fmt, subset=MONTH_ORDER)
+    .format(_fmt, subset=["Total"])
+    .set_properties(**{"text-align": "center", "font-size": "9px"})
     .set_properties(
         subset=["Total"],
-        **{"font-weight": "600", "background-color": "#f5f5f7", "border-left": "2px solid #d8d8e0"},
+        **{"font-weight": "700", "background-color": "#f5f5f7", "border-left": "2px solid #d8d8e0", "font-size": "9px"},
     )
     .set_table_styles([
-        {"selector": "th", "props": [("text-align", "center"), ("font-size", "11px"), ("font-weight", "600")]},
-        {"selector": "td", "props": [("text-align", "center")]},
+        {"selector": "th", "props": [("text-align", "center"), ("font-size", "9px"), ("font-weight", "600")]},
+        {"selector": "td", "props": [("text-align", "center"), ("font-size", "9px")]},
     ])
 )
-tbl_h = min(340, 28 * len(disp) + 46)
+tbl_h = min(340, 26 * len(disp) + 42)
 st.dataframe(styled, use_container_width=True, height=tbl_h)
 
 st.markdown("<hr>", unsafe_allow_html=True)
