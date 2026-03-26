@@ -232,8 +232,7 @@ styled = (
         {"selector": "td", "props": [("text-align","center"),("font-size","8px")]},
     ])
 )
-tbl_h = min(300, 22 * len(disp) + 38)
-st.dataframe(styled, use_container_width=True, height=tbl_h)
+st.dataframe(styled, use_container_width=True)
 
 st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -378,7 +377,7 @@ with col_ytd_tbl:
             "YTD_FMT":  f"YTD k Bags (Oct–{latest_common_label})",
             "YOY_FMT":  "YoY %",
         }),
-        use_container_width=True, hide_index=True, height=210,
+        use_container_width=True, hide_index=True,
     )
 
 with col_ytd_charts:
