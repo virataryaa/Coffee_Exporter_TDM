@@ -53,6 +53,8 @@ _D = dict(
 _PAL = ["#7bafd4","#f4a460","#82c982","#c9a0dc","#e8c96a","#7ec8c0","#e89090","#a0aad4",
         "#c8a06e","#90b8a0","#d4c0a0","#a8c0d8"]
 
+CHART_H = 150  # chart height in px (≈30% smaller than original 210)
+
 
 def lbl(text: str) -> str:
     return (
@@ -285,10 +287,10 @@ with col_roll:
         fill="tozeroy", fillcolor="rgba(74,127,181,0.07)",
     ))
     fig5.update_layout(
-        height=210,
+        height=CHART_H,
         xaxis=dict(showgrid=False, tickfont=dict(size=9)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        margin=dict(t=4, b=10, l=4, r=4),
+        margin=dict(t=4, b=7, l=4, r=4),
         **_D,
     )
     st.plotly_chart(fig5, use_container_width=True)
@@ -310,10 +312,10 @@ with col_mm:
         fig_mm.add_trace(go.Scatter(x=MONTH_ORDER, y=avg.values, name=f"Avg (L{len(last5)}Y)", mode="lines", line=dict(dash="dot", color="#aaaaaa", width=1.4)))
         fig_mm.add_trace(go.Scatter(x=latest_x, y=latest_y, name=latest_cy, mode="lines+markers", line=dict(color="#1d1d1f", width=2.5), marker=dict(size=5)))
         fig_mm.update_layout(
-            height=210,
+            height=CHART_H,
             xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
             yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-            legend=dict(orientation="h", y=-0.42, font=dict(size=9)),
+            legend=dict(orientation="h", y=-0.52, font=dict(size=9)),
             margin=dict(t=4, b=55, l=4, r=4),
             **_D,
         )
@@ -360,10 +362,10 @@ with col_sea:
         d = sea[sea["CROP_YEAR"] == cy].sort_values("CROP_MONTH_NUM")
         fig3.add_trace(go.Scatter(x=d["CROP_MONTH"], y=d["BAGS"], name=cy, mode="lines+markers", line=dict(color=color, width=width), marker=dict(size=3)))
     fig3.update_layout(
-        height=210,
+        height=CHART_H,
         xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        legend=dict(orientation="h", y=-0.45, font=dict(size=9)),
+        legend=dict(orientation="h", y=-0.55, font=dict(size=9)),
         margin=dict(t=4, b=58, l=4, r=4),
         **_D,
     )
@@ -382,10 +384,10 @@ with col_cum:
         d["CUM_BAGS"] = d["BAGS"].cumsum()
         fig4.add_trace(go.Scatter(x=d["CROP_MONTH"], y=d["CUM_BAGS"], name=cy, mode="lines+markers", line=dict(color=color, width=width), marker=dict(size=3)))
     fig4.update_layout(
-        height=210,
+        height=CHART_H,
         xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        legend=dict(orientation="h", y=-0.45, font=dict(size=9)),
+        legend=dict(orientation="h", y=-0.55, font=dict(size=9)),
         margin=dict(t=4, b=58, l=4, r=4),
         **_D,
     )
@@ -423,10 +425,10 @@ with col_ytd_charts:
             mode="lines+markers", line=dict(color="#4a7fb5", width=1.8), marker=dict(size=4),
         ))
         fig6.update_layout(
-            height=210,
+            height=CHART_H,
             xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
             yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-            margin=dict(t=4, b=10, l=4, r=4),
+            margin=dict(t=4, b=7, l=4, r=4),
             **_D,
         )
         st.plotly_chart(fig6, use_container_width=True)
@@ -441,10 +443,10 @@ with col_ytd_charts:
         ))
         fig7.add_hline(y=0, line_color="#cccccc", line_width=1)
         fig7.update_layout(
-            height=210,
+            height=CHART_H,
             xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
             yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-            margin=dict(t=14, b=10, l=4, r=4),
+            margin=dict(t=10, b=7, l=4, r=4),
             **_D,
         )
         st.plotly_chart(fig7, use_container_width=True)
