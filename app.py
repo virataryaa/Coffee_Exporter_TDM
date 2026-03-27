@@ -1,10 +1,8 @@
 """
 TDM Trade Flow Dashboard
 ========================
-Run locally:   streamlit run app.py
-Deploy:        push files/ folder to GitHub, set main file to files/app.py on Streamlit Cloud
-
-Data expected at:  files/data/tdm_coffee.parquet
+Run locally:
+    python -m streamlit run files/app.py
 """
 
 import numpy as np
@@ -13,7 +11,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from pathlib import Path
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="TDM Trade Flow Dashboard",
     layout="wide",
@@ -30,7 +27,7 @@ st.markdown("""
   h1, h2, h3                       { color: #1d1d1f !important; font-weight: 500 !important; }
   hr  { border: none !important; border-top: 1px solid #e8e8ed !important; margin: 0.5rem 0 !important; }
   [data-testid="stExpander"]       { border: 1px solid #e8e8ed !important; border-radius: 8px !important; background: #fff !important; }
-  [data-testid="stDataFrame"]      { border-radius: 8px; overflow: hidden; }
+  [data-testid="stDataFrame"]      { border-radius: 8px; overflow: visible !important; }
   .stCaption                       { color: #6e6e73 !important; font-size: 0.7rem !important; }
   [data-testid="stRadio"] label    { font-size: 0.74rem !important; }
 </style>
@@ -40,11 +37,10 @@ st.markdown("""
 MONTH_ORDER  = ["Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep"]
 NUM_TO_MONTH = {i + 1: m for i, m in enumerate(MONTH_ORDER)}
 
-COMMODITY_FILES = {
-    "Coffee": "data/tdm_coffee.parquet",
-    "Cocoa":  "data/tdm_cocoa.parquet",
-    "Sugar":  "data/tdm_sugar.parquet",
-    "Cotton": "data/tdm_cotton.parquet",
+FLOW_PATHS = {
+    "Coffee Exports":           r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\Fundamental\TDM\tdm_coffee.parquet",
+    "Coffee Imports":           r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\Fundamental\TDM\tdm_coffee_imports.parquet",
+    "Coffee Imports (EU Only)": r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\Fundamental\TDM\coffee_imports_eu.parquet",
 }
 
 _D = dict(
@@ -58,7 +54,6 @@ _PAL = ["#7bafd4","#f4a460","#82c982","#c9a0dc","#e8c96a","#7ec8c0","#e89090","#
 
 
 def lbl(text: str) -> str:
-    """Navy blue centered section label."""
     return (
         f"<div style='background:#0a2463;padding:5px 13px;border-radius:5px;"
         f"margin:0 0 5px 0;text-align:center'>"
@@ -67,12 +62,15 @@ def lbl(text: str) -> str:
     )
 
 
-# ── TOP BAR ───────────────────────────────────────────────────────────────────
-top_left, top_right = st.columns([1, 7])
-with top_left:
-    commodity = st.selectbox("", list(COMMODITY_FILES.keys()), label_visibility="collapsed")
-
-data_path = Path(__file__).parent / COMMODITY_FILES[commodity]
+# ── Flow selector (single choice, no double-counting) ─────────────────────────
+flow_choice = st.radio(
+    "Flow",
+    list(FLOW_PATHS.keys()),
+    index=0,
+    horizontal=True,
+    label_visibility="collapsed",
+)
+flow_label = "Exports" if flow_choice == "Coffee Exports" else "Imports"
 
 
 # ── Load data ─────────────────────────────────────────────────────────────────
@@ -80,39 +78,38 @@ data_path = Path(__file__).parent / COMMODITY_FILES[commodity]
 def load_data(path: str) -> pd.DataFrame:
     df = pd.read_parquet(path)
     df["DATE"] = pd.to_datetime(df[["YEAR", "MONTH"]].assign(DAY=1))
-    # GBE tons → thousands of 60kg bags  (÷ 60 gives k-bags directly)
     df["BAGS"] = df["GBE"] / 60
     return df
 
 
-if not data_path.exists():
-    st.info(f"{commodity} data not available yet. Place parquet at: `{COMMODITY_FILES[commodity]}`")
+data_path = Path(FLOW_PATHS[flow_choice])
+try:
+    df = load_data(str(data_path))
+except Exception as e:
+    st.error(str(e))
     st.stop()
 
-df = load_data(str(data_path))
+# ── Filters ────────────────────────────────────────────────────────────────────
+with st.expander("⚙  Filters", expanded=False):
+    fc1, fc2, fc3, fc4 = st.columns([2, 1.5, 1.5, 2])
 
-# ── Filters (expander) ────────────────────────────────────────────────────────
-with top_right:
-    with st.expander("⚙  Filters", expanded=False):
-        fc1, fc2, fc3, fc4 = st.columns([2, 1.5, 1.5, 2])
+    all_reporters = sorted(df["REPORTER"].dropna().unique())
+    with fc1:
+        sel_reporters = st.multiselect("Reporter", all_reporters, default=all_reporters)
 
-        all_reporters = sorted(df["REPORTER"].unique())
-        with fc1:
-            sel_reporters = st.multiselect("Reporter", all_reporters, default=all_reporters)
+    all_tags = sorted(df["COMMODITY_TAG"].dropna().unique()) if "COMMODITY_TAG" in df.columns else []
+    with fc2:
+        sel_tags = st.multiselect("Type", all_tags, default=all_tags) if all_tags else []
 
-        all_tags = sorted(df["COMMODITY_TAG"].dropna().unique()) if "COMMODITY_TAG" in df.columns else []
-        with fc2:
-            sel_tags = st.multiselect("Type", all_tags, default=all_tags) if all_tags else []
+    all_regions = sorted(df["REGION"].dropna().unique())
+    with fc3:
+        sel_regions = st.multiselect("Partner Region", all_regions, default=all_regions)
 
-        all_regions = sorted(df["REGION"].unique())
-        with fc3:
-            sel_regions = st.multiselect("Destination", all_regions, default=all_regions)
+    all_partners = sorted(df["PARTNER"].dropna().unique())
+    with fc4:
+        sel_partners = st.multiselect("Partner", all_partners, default=all_partners)
 
-        all_partners = sorted(df["PARTNER"].dropna().unique())
-        with fc4:
-            sel_partners = st.multiselect("Partner", all_partners, default=all_partners)
-
-# ── Apply filters ─────────────────────────────────────────────────────────────
+# ── Apply filters ──────────────────────────────────────────────────────────────
 mask = (
     df["REPORTER"].isin(sel_reporters or all_reporters)
     & df["REGION"].isin(sel_regions or all_regions)
@@ -123,7 +120,7 @@ if all_tags:
 
 dff = df[mask].copy()
 
-# ── Latest common month ────────────────────────────────────────────────────────
+# ── Latest common month (based on selected flow's reporters only) ──────────────
 if not dff.empty:
     latest_cy           = sorted(dff["CROP_YEAR"].unique())[-1]
     lm_per_rep          = dff[dff["CROP_YEAR"] == latest_cy].groupby("REPORTER")["CROP_MONTH_NUM"].max()
@@ -139,12 +136,11 @@ else:
     latest_common_label = "Sep"
     dff_disp            = dff.copy()
 
-# ── Drop the oldest (first) crop year from all visuals ────────────────────────
+# Drop oldest crop year from visuals
 if not dff_disp.empty and dff_disp["CROP_YEAR"].nunique() > 1:
     oldest_cy = sorted(dff_disp["CROP_YEAR"].unique())[0]
     dff_disp  = dff_disp[dff_disp["CROP_YEAR"] != oldest_cy].copy()
 
-# Previous crop year (for line colouring)
 _sorted_cy = sorted(dff_disp["CROP_YEAR"].unique()) if not dff_disp.empty else []
 prev_cy    = _sorted_cy[-2] if len(_sorted_cy) >= 2 else None
 
@@ -157,10 +153,10 @@ def cy_style(cy):
     return None, 1.4
 
 
-# ── Title ─────────────────────────────────────────────────────────────────────
+# ── Title ──────────────────────────────────────────────────────────────────────
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown(
-    f"### {commodity} Export Trade Flows &nbsp;"
+    f"### Coffee Trade Flows &nbsp;"
     f"<span style='font-size:0.85rem;font-weight:400;color:#6e6e73'>GBE · k Bags</span>",
     unsafe_allow_html=True,
 )
@@ -177,7 +173,8 @@ if dff_disp.empty:
     st.warning("No data for the current selection.")
     st.stop()
 
-# ── Pivot helper ──────────────────────────────────────────────────────────────
+
+# ── Pivot helper ───────────────────────────────────────────────────────────────
 def build_pivot(data: pd.DataFrame):
     grp = data.groupby(["CROP_YEAR", "CROP_MONTH_NUM"])["BAGS"].sum().reset_index()
     grp["CROP_MONTH"] = grp["CROP_MONTH_NUM"].map(NUM_TO_MONTH)
@@ -192,7 +189,7 @@ def build_pivot(data: pd.DataFrame):
 pivot, complete = build_pivot(dff_disp)
 complete_years  = sorted(complete[complete].index.tolist())
 
-# ── Pre-compute YTD ───────────────────────────────────────────────────────────
+# ── YTD ────────────────────────────────────────────────────────────────────────
 ytd = (
     dff_disp[dff_disp["CROP_MONTH_NUM"] <= latest_common_num]
     .groupby("CROP_YEAR")["BAGS"].sum().reset_index()
@@ -203,27 +200,54 @@ ytd["YOY_PCT"] = ytd["YTD_BAGS"].pct_change() * 100
 _fmt = lambda x: f"{x:,.0f}" if pd.notna(x) else ""
 
 # =============================================================================
-# ROW 1 — Heatmap (full width, k Bags)
+# ROW 1 — Heatmap with Min/Max/Avg reference rows
 # =============================================================================
-st.markdown(lbl(f"Flow Heatmap (GBE in k Bags) · Monthly Exports by Crop Year"), unsafe_allow_html=True)
+st.markdown(lbl(f"Flow Heatmap (GBE in k Bags) · Monthly {flow_label} by Crop Year"), unsafe_allow_html=True)
 st.caption(
     f"Latest crop year ({latest_cy}) capped at {latest_common_label}  ·  "
-    f"Light grey = no data  ·  Total shown only for complete Oct–Sep years"
+    f"Light grey = no data  ·  Total shown only for complete Oct–Sep years  ·  "
+    f"Min / Max / Avg rows based on last 5 complete crop years"
 )
 
 disp = pivot[MONTH_ORDER].astype(float)
 disp[disp == 0] = np.nan
 disp["Total"] = np.where(complete, disp[MONTH_ORDER].sum(axis=1), np.nan)
 
+main_idx  = disp.index.tolist()
+_REF_ROWS = []
+
+if complete_years:
+    last5         = complete_years[-5:]
+    ref           = pivot.loc[last5, MONTH_ORDER].astype(float)
+    annual_totals = ref.sum(axis=1)
+    n             = len(last5)
+
+    sep     = pd.Series({m: np.nan for m in MONTH_ORDER + ["Total"]}, name="  ")
+    row_min = pd.Series({**ref.min().to_dict(),  "Total": annual_totals.min()},  name=f"Min (L{n}Y)")
+    row_max = pd.Series({**ref.max().to_dict(),  "Total": annual_totals.max()},  name=f"Max (L{n}Y)")
+    row_avg = pd.Series({**ref.mean().to_dict(), "Total": annual_totals.mean()}, name=f"Avg (L{n}Y)")
+
+    disp_full = pd.concat([
+        disp,
+        sep.to_frame().T,
+        row_min.to_frame().T,
+        row_max.to_frame().T,
+        row_avg.to_frame().T,
+    ])
+    _REF_ROWS = [f"Min (L{n}Y)", f"Max (L{n}Y)", f"Avg (L{n}Y)"]
+else:
+    disp_full = disp.copy()
+
+all_data_idx = main_idx + _REF_ROWS
+
 styled = (
-    disp.style
-    .background_gradient(cmap="RdYlGn", axis=None, subset=MONTH_ORDER)
+    disp_full.style
+    .background_gradient(cmap="RdYlGn", axis=None, subset=pd.IndexSlice[main_idx, MONTH_ORDER])
     .highlight_null(color="#f0f0f0")
-    .format(_fmt, subset=MONTH_ORDER)
-    .format(_fmt, subset=["Total"])
+    .format(_fmt, subset=pd.IndexSlice[all_data_idx, MONTH_ORDER + ["Total"]])
     .set_properties(**{"text-align": "center", "font-size": "8px"})
     .set_properties(
-        subset=["Total"],
+        subset=pd.IndexSlice[main_idx, ["Total"]],
         **{"font-weight": "700", "background-color": "#f5f5f7",
            "border-left": "2px solid #d8d8e0", "font-size": "8px"},
     )
@@ -232,17 +256,24 @@ styled = (
         {"selector": "td", "props": [("text-align","center"),("font-size","8px")]},
     ])
 )
-st.dataframe(styled, use_container_width=True)
 
+if _REF_ROWS:
+    styled = styled.set_properties(
+        subset=pd.IndexSlice[_REF_ROWS, :],
+        **{"background-color": "#eef3fb", "font-weight": "600",
+           "font-style": "italic", "color": "#2c3e6e"},
+    )
+
+st.dataframe(styled, use_container_width=True, height=min(35 * (len(disp_full.index) + 3), 900))
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =============================================================================
-# ROW 2 — Rolling Exports  |  Min / Max / Avg vs Latest
+# ROW 2 — Rolling  |  Min/Max/Avg vs Latest
 # =============================================================================
 col_roll, col_mm = st.columns(2)
 
 with col_roll:
-    st.markdown(lbl("Rolling Exports (GBE in k Bags)"), unsafe_allow_html=True)
+    st.markdown(lbl(f"Rolling {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
     roll_choice = st.radio("Window", ["1m","3m","6m","12m"], index=3, horizontal=True)
     window = {"1m": 1, "3m": 3, "6m": 6, "12m": 12}[roll_choice]
     monthly = dff_disp.groupby("DATE")["BAGS"].sum().reset_index().sort_values("DATE")
@@ -313,7 +344,7 @@ if complete_years_s:
 col_sea, col_cum = st.columns(2)
 
 with col_sea:
-    st.markdown(lbl("Seasonal (GBE in k Bags) · Monthly by Crop Year"), unsafe_allow_html=True)
+    st.markdown(lbl(f"Seasonal (GBE in k Bags) · Monthly {flow_label} by Crop Year"), unsafe_allow_html=True)
     sel_sea = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="sea_sel")
     fig3 = go.Figure()
     if ref_band:
@@ -338,7 +369,7 @@ with col_sea:
     st.plotly_chart(fig3, use_container_width=True)
 
 with col_cum:
-    st.markdown(lbl("Cumulative Exports (GBE in k Bags) · by Crop Year"), unsafe_allow_html=True)
+    st.markdown(lbl(f"Cumulative {flow_label} (GBE in k Bags) · by Crop Year"), unsafe_allow_html=True)
     sel_cum = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="cum_sel")
     fig4 = go.Figure()
     pal_i = 0
@@ -377,7 +408,9 @@ with col_ytd_tbl:
             "YTD_FMT":  f"YTD k Bags (Oct–{latest_common_label})",
             "YOY_FMT":  "YoY %",
         }),
-        use_container_width=True, hide_index=True,
+        use_container_width=True,
+        hide_index=True,
+        height=min(35 * (len(tbl2.index) + 2), 900),
     )
 
 with col_ytd_charts:
@@ -415,6 +448,6 @@ with col_ytd_charts:
         )
         st.plotly_chart(fig7, use_container_width=True)
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+# ── Footer ─────────────────────────────────────────────────────────────────────
 st.markdown("<hr>", unsafe_allow_html=True)
 st.caption("TDM Trade Flow Dashboard  ·  ETG Softs  ·  k Bags = thousands of 60kg bags (GBE)")
