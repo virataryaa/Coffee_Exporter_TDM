@@ -37,10 +37,11 @@ st.markdown("""
 MONTH_ORDER  = ["Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep"]
 NUM_TO_MONTH = {i + 1: m for i, m in enumerate(MONTH_ORDER)}
 
+_DATA = Path(__file__).parent / "data"
 FLOW_PATHS = {
-    "Coffee Exports":           r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\Fundamental\TDM\tdm_coffee.parquet",
-    "Coffee Imports":           r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\Fundamental\TDM\tdm_coffee_imports.parquet",
-    "Coffee Imports (EU Only)": r"C:\Users\virat.arya\ETG\SoftsDatabase - Documents\Database\Hardmine\Fundamental\TDM\coffee_imports_eu.parquet",
+    "Coffee Exports":           str(_DATA / "tdm_coffee.parquet"),
+    "Coffee Imports":           str(_DATA / "tdm_coffee_imports.parquet"),
+    "Coffee Imports (EU Only)": str(_DATA / "coffee_imports_eu.parquet"),
 }
 
 _D = dict(
