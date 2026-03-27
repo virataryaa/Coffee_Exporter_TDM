@@ -267,15 +267,32 @@ if _REF_ROWS:
            "font-style": "italic", "color": "#2c3e6e"},
     )
 
-st.dataframe(styled, use_container_width=True, height=min(35 * (len(disp_full.index) + 3), 900))
+st.dataframe(styled, use_container_width=True, height=min(28 * (len(disp_full.index) + 3), 700))
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# =============================================================================
-# ROW 2 — Rolling  |  Min/Max/Avg vs Latest
-# =============================================================================
-col_roll, col_mm = st.columns(2)
+# Pre-compute seasonal data (shared across rows 2 & 3)
+sea = (
+    dff_disp.groupby(["CROP_YEAR", "CROP_MONTH_NUM"])["BAGS"]
+    .sum().reset_index().sort_values(["CROP_YEAR", "CROP_MONTH_NUM"])
+)
+sea["CROP_MONTH"] = sea["CROP_MONTH_NUM"].map(NUM_TO_MONTH)
+all_sea_cy  = sorted(sea["CROP_YEAR"].unique())
+default_sea = all_sea_cy[-6:] if len(all_sea_cy) >= 6 else all_sea_cy
 
-with col_roll:
+pivot_s, complete_s = build_pivot(dff_disp)
+complete_years_s    = sorted(complete_s[complete_s].index.tolist())
+ref_band: dict = {}
+if complete_years_s:
+    last5_s  = complete_years_s[-10:]
+    ref_s    = pivot_s.loc[last5_s, MONTH_ORDER]
+    ref_band = {"max": ref_s.max(), "min": ref_s.min(), "avg": ref_s.mean(), "n": len(last5_s)}
+
+# =============================================================================
+# ROW 2 — Rolling  |  Min/Max/Avg  |  Seasonal
+# =============================================================================
+col_r1, col_r2, col_r3 = st.columns(3)
+
+with col_r1:
     st.markdown(lbl(f"Rolling {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
     roll_choice = st.radio("Window", ["1m","3m","6m","12m"], index=3, horizontal=True)
     window = {"1m": 1, "3m": 3, "6m": 6, "12m": 12}[roll_choice]
@@ -295,7 +312,7 @@ with col_roll:
     )
     st.plotly_chart(fig5, use_container_width=True)
 
-with col_mm:
+with col_r2:
     st.markdown(lbl("Min / Max / Avg vs Latest (GBE in k Bags)"), unsafe_allow_html=True)
     if complete_years:
         last5 = complete_years[-10:]
@@ -323,31 +340,8 @@ with col_mm:
     else:
         st.info("No complete crop years for reference.")
 
-st.markdown("<hr>", unsafe_allow_html=True)
-
-# =============================================================================
-# ROW 3 — Seasonal  |  Cumulative
-# =============================================================================
-sea = (
-    dff_disp.groupby(["CROP_YEAR", "CROP_MONTH_NUM"])["BAGS"]
-    .sum().reset_index().sort_values(["CROP_YEAR", "CROP_MONTH_NUM"])
-)
-sea["CROP_MONTH"] = sea["CROP_MONTH_NUM"].map(NUM_TO_MONTH)
-all_sea_cy  = sorted(sea["CROP_YEAR"].unique())
-default_sea = all_sea_cy[-6:] if len(all_sea_cy) >= 6 else all_sea_cy
-
-pivot_s, complete_s  = build_pivot(dff_disp)
-complete_years_s     = sorted(complete_s[complete_s].index.tolist())
-ref_band: dict = {}
-if complete_years_s:
-    last5_s  = complete_years_s[-10:]
-    ref_s    = pivot_s.loc[last5_s, MONTH_ORDER]
-    ref_band = {"max": ref_s.max(), "min": ref_s.min(), "avg": ref_s.mean(), "n": len(last5_s)}
-
-col_sea, col_cum = st.columns(2)
-
-with col_sea:
-    st.markdown(lbl(f"Seasonal (GBE in k Bags) · Monthly {flow_label} by Crop Year"), unsafe_allow_html=True)
+with col_r3:
+    st.markdown(lbl(f"Seasonal (GBE in k Bags) · Monthly {flow_label}"), unsafe_allow_html=True)
     sel_sea = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="sea_sel")
     fig3 = go.Figure()
     if ref_band:
@@ -371,8 +365,15 @@ with col_sea:
     )
     st.plotly_chart(fig3, use_container_width=True)
 
-with col_cum:
-    st.markdown(lbl(f"Cumulative {flow_label} (GBE in k Bags) · by Crop Year"), unsafe_allow_html=True)
+st.markdown("<hr>", unsafe_allow_html=True)
+
+# =============================================================================
+# ROW 3 — Cumulative  |  YTD Trend  |  YoY %
+# =============================================================================
+col_c1, col_c2, col_c3 = st.columns(3)
+
+with col_c1:
+    st.markdown(lbl(f"Cumulative {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
     sel_cum = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="cum_sel")
     fig4 = go.Figure()
     pal_i = 0
@@ -393,15 +394,49 @@ with col_cum:
     )
     st.plotly_chart(fig4, use_container_width=True)
 
+with col_c2:
+    st.markdown(lbl(f"YTD Trend · Oct–{latest_common_label} (GBE in k Bags)"), unsafe_allow_html=True)
+    fig6 = go.Figure(go.Scatter(
+        x=ytd["CROP_YEAR"], y=ytd["YTD_BAGS"],
+        mode="lines+markers", line=dict(color="#4a7fb5", width=1.8), marker=dict(size=4),
+    ))
+    fig6.update_layout(
+        height=CHART_H,
+        xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
+        yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
+        margin=dict(t=4, b=7, l=4, r=4),
+        **_D,
+    )
+    st.plotly_chart(fig6, use_container_width=True)
+
+with col_c3:
+    st.markdown(lbl("YoY % Change (GBE in k Bags)"), unsafe_allow_html=True)
+    pct_df = ytd.dropna(subset=["YOY_PCT"]).copy()
+    pct_df["COLOR"] = pct_df["YOY_PCT"].apply(lambda x: "#5a9e6f" if x >= 0 else "#c0392b")
+    fig7 = go.Figure(go.Bar(
+        x=pct_df["CROP_YEAR"], y=pct_df["YOY_PCT"],
+        marker_color=pct_df["COLOR"],
+        text=pct_df["YOY_PCT"].map(lambda x: f"{x:+.1f}%"),
+        textposition="outside", textfont=dict(size=8),
+    ))
+    fig7.add_hline(y=0, line_color="#cccccc", line_width=1)
+    fig7.update_layout(
+        height=CHART_H,
+        xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
+        yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
+        margin=dict(t=10, b=7, l=4, r=4),
+        **_D,
+    )
+    st.plotly_chart(fig7, use_container_width=True)
+
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =============================================================================
-# ROW 4 — YTD Table  |  YTD Trend + YoY %
+# ROW 4 — YTD Table (compact)
 # =============================================================================
-col_ytd_tbl, col_ytd_charts = st.columns([2, 3])
-
-with col_ytd_tbl:
-    st.markdown(lbl(f"YTD · Oct – {latest_common_label} (GBE in k Bags)"), unsafe_allow_html=True)
+col_tbl, _ = st.columns([1, 2])
+with col_tbl:
+    st.markdown(lbl(f"YTD · Oct–{latest_common_label} (GBE in k Bags)"), unsafe_allow_html=True)
     tbl2 = ytd.copy()
     tbl2["YTD_FMT"] = tbl2["YTD_BAGS"].map(lambda x: f"{x:,.0f}")
     tbl2["YOY_FMT"] = tbl2["YOY_PCT"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
@@ -413,43 +448,8 @@ with col_ytd_tbl:
         }),
         use_container_width=True,
         hide_index=True,
-        height=min(35 * (len(tbl2.index) + 2), 900),
+        height=min(28 * (len(tbl2.index) + 2), 400),
     )
-
-with col_ytd_charts:
-    st.markdown(lbl("YTD Trend + YoY % Change (GBE in k Bags)"), unsafe_allow_html=True)
-    ya, yb = st.columns(2)
-    with ya:
-        fig6 = go.Figure(go.Scatter(
-            x=ytd["CROP_YEAR"], y=ytd["YTD_BAGS"],
-            mode="lines+markers", line=dict(color="#4a7fb5", width=1.8), marker=dict(size=4),
-        ))
-        fig6.update_layout(
-            height=CHART_H,
-            xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
-            yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-            margin=dict(t=4, b=7, l=4, r=4),
-            **_D,
-        )
-        st.plotly_chart(fig6, use_container_width=True)
-    with yb:
-        pct_df = ytd.dropna(subset=["YOY_PCT"]).copy()
-        pct_df["COLOR"] = pct_df["YOY_PCT"].apply(lambda x: "#5a9e6f" if x >= 0 else "#c0392b")
-        fig7 = go.Figure(go.Bar(
-            x=pct_df["CROP_YEAR"], y=pct_df["YOY_PCT"],
-            marker_color=pct_df["COLOR"],
-            text=pct_df["YOY_PCT"].map(lambda x: f"{x:+.1f}%"),
-            textposition="outside", textfont=dict(size=8),
-        ))
-        fig7.add_hline(y=0, line_color="#cccccc", line_width=1)
-        fig7.update_layout(
-            height=CHART_H,
-            xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
-            yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-            margin=dict(t=10, b=7, l=4, r=4),
-            **_D,
-        )
-        st.plotly_chart(fig7, use_container_width=True)
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
 st.markdown("<hr>", unsafe_allow_html=True)
