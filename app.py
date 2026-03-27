@@ -203,23 +203,48 @@ ytd["YOY_PCT"] = ytd["YTD_BAGS"].pct_change() * 100
 
 _fmt = lambda x: f"{x:,.0f}" if pd.notna(x) else ""
 
+# ── Pre-compute seasonal data (needed before heatmap for slider) ───────────────
+sea = (
+    dff_disp.groupby(["CROP_YEAR", "CROP_MONTH_NUM"])["BAGS"]
+    .sum().reset_index().sort_values(["CROP_YEAR", "CROP_MONTH_NUM"])
+)
+sea["CROP_MONTH"] = sea["CROP_MONTH_NUM"].map(NUM_TO_MONTH)
+all_sea_cy = sorted(sea["CROP_YEAR"].unique())
+
+# ── Crop year range slider (above heatmap, drives all visuals except Rolling & Min/Max) ──
+if len(all_sea_cy) >= 2:
+    _def_start = all_sea_cy[max(0, len(all_sea_cy) - 6)]
+    cy_range = st.select_slider(
+        "Crop year range",
+        options=all_sea_cy,
+        value=(_def_start, all_sea_cy[-1]),
+        label_visibility="visible",
+    )
+    sel_sea_cy = [cy for cy in all_sea_cy if cy_range[0] <= cy <= cy_range[1]]
+else:
+    sel_sea_cy = all_sea_cy
+
 # =============================================================================
-# ROW 1 — Heatmap with Min/Max/Avg reference rows
+# ROW 1 — Heatmap (rows filtered by slider, Min/Max/Avg always from full data)
 # =============================================================================
 st.markdown(lbl(f"Flow Heatmap (GBE in k Bags) · Monthly {flow_label} by Crop Year"), unsafe_allow_html=True)
 st.caption(
     f"Latest crop year ({latest_cy}) capped at {latest_common_label}  ·  "
     f"Light grey = no data  ·  Total shown only for complete Oct–Sep years  ·  "
-    f"Min / Max / Avg rows based on last 10 complete crop years"
+    f"Min / Max / Avg rows based on last 10 complete crop years (unaffected by range)"
 )
 
 disp = pivot[MONTH_ORDER].astype(float)
 disp[disp == 0] = np.nan
-disp["Total"] = np.where(complete, disp[MONTH_ORDER].sum(axis=1), np.nan)
 
-main_idx  = disp.index.tolist()
+# Filter rows to slider selection
+disp_sel = disp.loc[[cy for cy in sel_sea_cy if cy in disp.index]].copy()
+complete_sel = complete.reindex(disp_sel.index)
+disp_sel["Total"] = np.where(complete_sel, disp_sel[MONTH_ORDER].sum(axis=1), np.nan)
+main_idx  = disp_sel.index.tolist()
 _REF_ROWS = []
 
+# Ref rows always from full complete_years (unaffected by slider)
 if complete_years:
     last5         = complete_years[-10:]
     ref           = pivot.loc[last5, MONTH_ORDER].astype(float)
@@ -232,7 +257,7 @@ if complete_years:
     row_avg = pd.Series({**ref.mean().to_dict(), "Total": annual_totals.mean()}, name=f"Avg (L{n}Y)")
 
     disp_full = pd.concat([
-        disp,
+        disp_sel,
         sep.to_frame().T,
         row_min.to_frame().T,
         row_max.to_frame().T,
@@ -240,24 +265,22 @@ if complete_years:
     ])
     _REF_ROWS = [f"Min (L{n}Y)", f"Max (L{n}Y)", f"Avg (L{n}Y)"]
 else:
-    disp_full = disp.copy()
-
-all_data_idx = main_idx + _REF_ROWS
+    disp_full = disp_sel.copy()
 
 styled = (
     disp_full.style
     .background_gradient(cmap="RdYlGn", axis=None, subset=pd.IndexSlice[main_idx, MONTH_ORDER])
     .highlight_null(color="#f0f0f0")
     .format(_fmt, subset=pd.IndexSlice[:, MONTH_ORDER + ["Total"]])
-    .set_properties(**{"text-align": "center", "font-size": "5px"})
+    .set_properties(**{"text-align": "center", "font-size": "8px"})
     .set_properties(
         subset=pd.IndexSlice[main_idx, ["Total"]],
         **{"font-weight": "700", "background-color": "#f5f5f7",
-           "border-left": "2px solid #d8d8e0", "font-size": "5px"},
+           "border-left": "2px solid #d8d8e0", "font-size": "8px"},
     )
     .set_table_styles([
-        {"selector": "th", "props": [("text-align","center"),("font-size","5px"),("font-weight","600")]},
-        {"selector": "td", "props": [("text-align","center"),("font-size","5px")]},
+        {"selector": "th", "props": [("text-align","center"),("font-size","8px"),("font-weight","600")]},
+        {"selector": "td", "props": [("text-align","center"),("font-size","8px")]},
     ])
 )
 
@@ -268,60 +291,46 @@ if _REF_ROWS:
            "font-style": "italic", "color": "#2c3e6e"},
     )
 
-st.dataframe(styled, use_container_width=True, height=min(16 * (len(disp_full.index) + 3), 500))
+st.dataframe(styled, use_container_width=True, height=min(35 * (len(disp_full.index) + 3), 900))
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# ── Crop year range selector (shared by Seasonal & Cumulative) ────────────────
-sea = (
-    dff_disp.groupby(["CROP_YEAR", "CROP_MONTH_NUM"])["BAGS"]
-    .sum().reset_index().sort_values(["CROP_YEAR", "CROP_MONTH_NUM"])
-)
-sea["CROP_MONTH"] = sea["CROP_MONTH_NUM"].map(NUM_TO_MONTH)
-all_sea_cy = sorted(sea["CROP_YEAR"].unique())
-
-if len(all_sea_cy) >= 2:
-    _def_start = all_sea_cy[max(0, len(all_sea_cy) - 6)]
-    cy_range = st.select_slider(
-        "Crop year range  ·  Seasonal & Cumulative",
-        options=all_sea_cy,
-        value=(_def_start, all_sea_cy[-1]),
-    )
-    sel_sea_cy = [cy for cy in all_sea_cy if cy_range[0] <= cy <= cy_range[1]]
-else:
-    sel_sea_cy = all_sea_cy
-
-pivot_s, complete_s = build_pivot(dff_disp)
-complete_years_s    = sorted(complete_s[complete_s].index.tolist())
+# ── Min/Max/Avg band (unaffected by slider) ────────────────────────────────────
+complete_years_s = sorted(complete[complete].index.tolist())
 ref_band: dict = {}
 if complete_years_s:
     last5_s  = complete_years_s[-10:]
-    ref_s    = pivot_s.loc[last5_s, MONTH_ORDER]
+    ref_s    = pivot.loc[last5_s, MONTH_ORDER]
     ref_band = {"max": ref_s.max(), "min": ref_s.min(), "avg": ref_s.mean(), "n": len(last5_s)}
 
+# Filtered YTD (follows slider)
+ytd_disp = ytd[ytd["CROP_YEAR"].isin(sel_sea_cy)].copy()
+ytd_disp["YOY_PCT"] = ytd_disp["YTD_BAGS"].pct_change() * 100
+
 # =============================================================================
-# ROW 2 — Rolling  |  Min/Max/Avg  |  Seasonal
+# ROW 2 — Cumulative  |  Min/Max/Avg  |  Seasonal      (CHART_H)
 # =============================================================================
 col_r1, col_r2, col_r3 = st.columns(3)
 
 with col_r1:
-    st.markdown(lbl(f"Rolling {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
-    roll_choice = st.radio("Window", ["1m","3m","6m","12m"], index=3, horizontal=True)
-    window = {"1m": 1, "3m": 3, "6m": 6, "12m": 12}[roll_choice]
-    monthly = dff_disp.groupby("DATE")["BAGS"].sum().reset_index().sort_values("DATE")
-    monthly["ROLLING"] = monthly["BAGS"].rolling(window).sum()
-    fig5 = go.Figure(go.Scatter(
-        x=monthly["DATE"], y=monthly["ROLLING"],
-        mode="lines", line=dict(color="#4a7fb5", width=1.8),
-        fill="tozeroy", fillcolor="rgba(74,127,181,0.07)",
-    ))
-    fig5.update_layout(
+    st.markdown(lbl(f"Cumulative {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
+    fig4 = go.Figure()
+    pal_i = 0
+    for cy in sorted(sel_sea_cy):
+        color, width = cy_style(cy)
+        if color is None:
+            color = _PAL[pal_i % len(_PAL)]; pal_i += 1
+        d = sea[sea["CROP_YEAR"] == cy].sort_values("CROP_MONTH_NUM").copy()
+        d["CUM_BAGS"] = d["BAGS"].cumsum()
+        fig4.add_trace(go.Scatter(x=d["CROP_MONTH"], y=d["CUM_BAGS"], name=cy, mode="lines+markers", line=dict(color=color, width=width), marker=dict(size=3)))
+    fig4.update_layout(
         height=CHART_H,
-        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
+        xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        margin=dict(t=4, b=7, l=4, r=4),
+        legend=dict(orientation="h", y=1.02, x=0, font=dict(size=7), bgcolor="rgba(255,255,255,0.7)"),
+        margin=dict(t=25, b=7, l=4, r=4),
         **_D,
     )
-    st.plotly_chart(fig5, use_container_width=True)
+    st.plotly_chart(fig4, use_container_width=True)
 
 with col_r2:
     st.markdown(lbl("Min / Max / Avg vs Latest (GBE in k Bags)"), unsafe_allow_html=True)
@@ -378,35 +387,34 @@ with col_r3:
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =============================================================================
-# ROW 3 — Cumulative  |  YTD Trend  |  YoY %
+# ROW 3 — Rolling  |  YTD Trend  |  YoY %            (CHART_H_LG)
 # =============================================================================
 col_c1, col_c2, col_c3 = st.columns(3)
 
 with col_c1:
-    st.markdown(lbl(f"Cumulative {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
-    fig4 = go.Figure()
-    pal_i = 0
-    for cy in sorted(sel_sea_cy):
-        color, width = cy_style(cy)
-        if color is None:
-            color = _PAL[pal_i % len(_PAL)]; pal_i += 1
-        d = sea[sea["CROP_YEAR"] == cy].sort_values("CROP_MONTH_NUM").copy()
-        d["CUM_BAGS"] = d["BAGS"].cumsum()
-        fig4.add_trace(go.Scatter(x=d["CROP_MONTH"], y=d["CUM_BAGS"], name=cy, mode="lines+markers", line=dict(color=color, width=width), marker=dict(size=3)))
-    fig4.update_layout(
+    st.markdown(lbl(f"Rolling {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
+    roll_choice = st.radio("Window", ["1m","3m","6m","12m"], index=3, horizontal=True)
+    window = {"1m": 1, "3m": 3, "6m": 6, "12m": 12}[roll_choice]
+    monthly = dff_disp.groupby("DATE")["BAGS"].sum().reset_index().sort_values("DATE")
+    monthly["ROLLING"] = monthly["BAGS"].rolling(window).sum()
+    fig5 = go.Figure(go.Scatter(
+        x=monthly["DATE"], y=monthly["ROLLING"],
+        mode="lines", line=dict(color="#4a7fb5", width=1.8),
+        fill="tozeroy", fillcolor="rgba(74,127,181,0.07)",
+    ))
+    fig5.update_layout(
         height=CHART_H_LG,
-        xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
+        xaxis=dict(showgrid=False, tickfont=dict(size=9)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        legend=dict(orientation="h", y=1.02, x=0, font=dict(size=7), bgcolor="rgba(255,255,255,0.7)"),
-        margin=dict(t=25, b=7, l=4, r=4),
+        margin=dict(t=4, b=7, l=4, r=4),
         **_D,
     )
-    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig5, use_container_width=True)
 
 with col_c2:
     st.markdown(lbl(f"YTD Trend · Oct–{latest_common_label} (GBE in k Bags)"), unsafe_allow_html=True)
     fig6 = go.Figure(go.Scatter(
-        x=ytd["CROP_YEAR"], y=ytd["YTD_BAGS"],
+        x=ytd_disp["CROP_YEAR"], y=ytd_disp["YTD_BAGS"],
         mode="lines+markers", line=dict(color="#4a7fb5", width=1.8), marker=dict(size=4),
     ))
     fig6.update_layout(
@@ -420,7 +428,7 @@ with col_c2:
 
 with col_c3:
     st.markdown(lbl("YoY % Change (GBE in k Bags)"), unsafe_allow_html=True)
-    pct_df = ytd.dropna(subset=["YOY_PCT"]).copy()
+    pct_df = ytd_disp.dropna(subset=["YOY_PCT"]).copy()
     pct_df["COLOR"] = pct_df["YOY_PCT"].apply(lambda x: "#5a9e6f" if x >= 0 else "#c0392b")
     fig7 = go.Figure(go.Bar(
         x=pct_df["CROP_YEAR"], y=pct_df["YOY_PCT"],
@@ -441,12 +449,12 @@ with col_c3:
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =============================================================================
-# ROW 4 — YTD Table (compact)
+# ROW 4 — YTD Table (filtered by slider)
 # =============================================================================
 col_tbl, _ = st.columns([1, 2])
 with col_tbl:
     st.markdown(lbl(f"YTD · Oct–{latest_common_label} (GBE in k Bags)"), unsafe_allow_html=True)
-    tbl2 = ytd.copy()
+    tbl2 = ytd_disp.copy()
     tbl2["YTD_FMT"] = tbl2["YTD_BAGS"].map(lambda x: f"{x:,.0f}")
     tbl2["YOY_FMT"] = tbl2["YOY_PCT"].map(lambda x: f"{x:+.1f}%" if pd.notna(x) else "—")
     st.dataframe(
@@ -457,7 +465,7 @@ with col_tbl:
         }),
         use_container_width=True,
         hide_index=True,
-        height=min(16 * (len(tbl2.index) + 2), 300),
+        height=min(35 * (len(tbl2.index) + 2), 900),
     )
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
