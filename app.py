@@ -22,7 +22,7 @@ st.markdown("""
   [data-testid="stAppViewContainer"],
   [data-testid="stMain"], .main    { background-color: #fafafa !important; }
   [data-testid="stHeader"]         { background: transparent !important; }
-  .block-container { padding-top: 1rem !important; padding-bottom: 1.5rem; max-width: 1400px; }
+  .block-container { padding-top: 3.5rem !important; padding-bottom: 1.5rem; max-width: 1400px; }
   html, body, [class*="css"]       { font-family: -apple-system, "Helvetica Neue", sans-serif; }
   h1, h2, h3                       { color: #1d1d1f !important; font-weight: 500 !important; }
   hr  { border: none !important; border-top: 1px solid #e8e8ed !important; margin: 0.5rem 0 !important; }
@@ -207,7 +207,7 @@ st.markdown(lbl(f"Flow Heatmap (GBE in k Bags) · Monthly {flow_label} by Crop Y
 st.caption(
     f"Latest crop year ({latest_cy}) capped at {latest_common_label}  ·  "
     f"Light grey = no data  ·  Total shown only for complete Oct–Sep years  ·  "
-    f"Min / Max / Avg rows based on last 5 complete crop years"
+    f"Min / Max / Avg rows based on last 10 complete crop years"
 )
 
 disp = pivot[MONTH_ORDER].astype(float)
@@ -218,7 +218,7 @@ main_idx  = disp.index.tolist()
 _REF_ROWS = []
 
 if complete_years:
-    last5         = complete_years[-5:]
+    last5         = complete_years[-10:]
     ref           = pivot.loc[last5, MONTH_ORDER].astype(float)
     annual_totals = ref.sum(axis=1)
     n             = len(last5)
@@ -245,7 +245,7 @@ styled = (
     disp_full.style
     .background_gradient(cmap="RdYlGn", axis=None, subset=pd.IndexSlice[main_idx, MONTH_ORDER])
     .highlight_null(color="#f0f0f0")
-    .format(_fmt, subset=pd.IndexSlice[all_data_idx, MONTH_ORDER + ["Total"]])
+    .format(_fmt, subset=pd.IndexSlice[:, MONTH_ORDER + ["Total"]])
     .set_properties(**{"text-align": "center", "font-size": "8px"})
     .set_properties(
         subset=pd.IndexSlice[main_idx, ["Total"]],
@@ -296,7 +296,7 @@ with col_roll:
 with col_mm:
     st.markdown(lbl("Min / Max / Avg vs Latest (GBE in k Bags)"), unsafe_allow_html=True)
     if complete_years:
-        last5 = complete_years[-5:]
+        last5 = complete_years[-10:]
         ref   = pivot.loc[last5, MONTH_ORDER]
         mn, mx, avg = ref.min(), ref.max(), ref.mean()
         latest_x = MONTH_ORDER[:latest_common_num]
@@ -338,7 +338,7 @@ pivot_s, complete_s  = build_pivot(dff_disp)
 complete_years_s     = sorted(complete_s[complete_s].index.tolist())
 ref_band: dict = {}
 if complete_years_s:
-    last5_s  = complete_years_s[-5:]
+    last5_s  = complete_years_s[-10:]
     ref_s    = pivot_s.loc[last5_s, MONTH_ORDER]
     ref_band = {"max": ref_s.max(), "min": ref_s.min(), "avg": ref_s.mean(), "n": len(last5_s)}
 
