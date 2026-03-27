@@ -53,7 +53,8 @@ _D = dict(
 _PAL = ["#7bafd4","#f4a460","#82c982","#c9a0dc","#e8c96a","#7ec8c0","#e89090","#a0aad4",
         "#c8a06e","#90b8a0","#d4c0a0","#a8c0d8"]
 
-CHART_H = 150  # chart height in px (≈30% smaller than original 210)
+CHART_H    = 150  # row 2 chart height
+CHART_H_LG = 225  # row 3 chart height (1.5× row 2)
 
 
 def lbl(text: str) -> str:
@@ -248,15 +249,15 @@ styled = (
     .background_gradient(cmap="RdYlGn", axis=None, subset=pd.IndexSlice[main_idx, MONTH_ORDER])
     .highlight_null(color="#f0f0f0")
     .format(_fmt, subset=pd.IndexSlice[:, MONTH_ORDER + ["Total"]])
-    .set_properties(**{"text-align": "center", "font-size": "8px"})
+    .set_properties(**{"text-align": "center", "font-size": "5px"})
     .set_properties(
         subset=pd.IndexSlice[main_idx, ["Total"]],
         **{"font-weight": "700", "background-color": "#f5f5f7",
-           "border-left": "2px solid #d8d8e0", "font-size": "8px"},
+           "border-left": "2px solid #d8d8e0", "font-size": "5px"},
     )
     .set_table_styles([
-        {"selector": "th", "props": [("text-align","center"),("font-size","8px"),("font-weight","600")]},
-        {"selector": "td", "props": [("text-align","center"),("font-size","8px")]},
+        {"selector": "th", "props": [("text-align","center"),("font-size","5px"),("font-weight","600")]},
+        {"selector": "td", "props": [("text-align","center"),("font-size","5px")]},
     ])
 )
 
@@ -267,17 +268,27 @@ if _REF_ROWS:
            "font-style": "italic", "color": "#2c3e6e"},
     )
 
-st.dataframe(styled, use_container_width=True, height=min(28 * (len(disp_full.index) + 3), 700))
+st.dataframe(styled, use_container_width=True, height=min(16 * (len(disp_full.index) + 3), 500))
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# Pre-compute seasonal data (shared across rows 2 & 3)
+# ── Crop year range selector (shared by Seasonal & Cumulative) ────────────────
 sea = (
     dff_disp.groupby(["CROP_YEAR", "CROP_MONTH_NUM"])["BAGS"]
     .sum().reset_index().sort_values(["CROP_YEAR", "CROP_MONTH_NUM"])
 )
 sea["CROP_MONTH"] = sea["CROP_MONTH_NUM"].map(NUM_TO_MONTH)
-all_sea_cy  = sorted(sea["CROP_YEAR"].unique())
-default_sea = all_sea_cy[-6:] if len(all_sea_cy) >= 6 else all_sea_cy
+all_sea_cy = sorted(sea["CROP_YEAR"].unique())
+
+if len(all_sea_cy) >= 2:
+    _def_start = all_sea_cy[max(0, len(all_sea_cy) - 6)]
+    cy_range = st.select_slider(
+        "Crop year range  ·  Seasonal & Cumulative",
+        options=all_sea_cy,
+        value=(_def_start, all_sea_cy[-1]),
+    )
+    sel_sea_cy = [cy for cy in all_sea_cy if cy_range[0] <= cy <= cy_range[1]]
+else:
+    sel_sea_cy = all_sea_cy
 
 pivot_s, complete_s = build_pivot(dff_disp)
 complete_years_s    = sorted(complete_s[complete_s].index.tolist())
@@ -332,8 +343,8 @@ with col_r2:
             height=CHART_H,
             xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
             yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-            legend=dict(orientation="h", y=-0.52, font=dict(size=9)),
-            margin=dict(t=4, b=55, l=4, r=4),
+            legend=dict(orientation="h", y=1.02, x=0, font=dict(size=7), bgcolor="rgba(255,255,255,0.7)"),
+            margin=dict(t=25, b=7, l=4, r=4),
             **_D,
         )
         st.plotly_chart(fig_mm, use_container_width=True)
@@ -342,14 +353,13 @@ with col_r2:
 
 with col_r3:
     st.markdown(lbl(f"Seasonal (GBE in k Bags) · Monthly {flow_label}"), unsafe_allow_html=True)
-    sel_sea = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="sea_sel")
     fig3 = go.Figure()
     if ref_band:
         fig3.add_trace(go.Scatter(x=MONTH_ORDER, y=ref_band["max"].values, name=f"Max (L{ref_band['n']}Y)", mode="lines", line=dict(color="#5a9e6f", width=1.2)))
         fig3.add_trace(go.Scatter(x=MONTH_ORDER, y=ref_band["min"].values, name=f"Min (L{ref_band['n']}Y)", mode="lines", line=dict(color="#e07b39", width=1.2), fill="tonexty", fillcolor="rgba(180,180,180,0.08)"))
         fig3.add_trace(go.Scatter(x=MONTH_ORDER, y=ref_band["avg"].values, name=f"Avg (L{ref_band['n']}Y)", mode="lines", line=dict(dash="dot", color="#aaaaaa", width=1.2)))
     pal_i = 0
-    for cy in sorted(sel_sea):
+    for cy in sorted(sel_sea_cy):
         color, width = cy_style(cy)
         if color is None:
             color = _PAL[pal_i % len(_PAL)]; pal_i += 1
@@ -359,8 +369,8 @@ with col_r3:
         height=CHART_H,
         xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        legend=dict(orientation="h", y=-0.55, font=dict(size=9)),
-        margin=dict(t=4, b=58, l=4, r=4),
+        legend=dict(orientation="h", y=1.02, x=0, font=dict(size=7), bgcolor="rgba(255,255,255,0.7)"),
+        margin=dict(t=25, b=7, l=4, r=4),
         **_D,
     )
     st.plotly_chart(fig3, use_container_width=True)
@@ -374,10 +384,9 @@ col_c1, col_c2, col_c3 = st.columns(3)
 
 with col_c1:
     st.markdown(lbl(f"Cumulative {flow_label} (GBE in k Bags)"), unsafe_allow_html=True)
-    sel_cum = st.multiselect("Crop years", all_sea_cy, default=default_sea, key="cum_sel")
     fig4 = go.Figure()
     pal_i = 0
-    for cy in sorted(sel_cum):
+    for cy in sorted(sel_sea_cy):
         color, width = cy_style(cy)
         if color is None:
             color = _PAL[pal_i % len(_PAL)]; pal_i += 1
@@ -385,11 +394,11 @@ with col_c1:
         d["CUM_BAGS"] = d["BAGS"].cumsum()
         fig4.add_trace(go.Scatter(x=d["CROP_MONTH"], y=d["CUM_BAGS"], name=cy, mode="lines+markers", line=dict(color=color, width=width), marker=dict(size=3)))
     fig4.update_layout(
-        height=CHART_H,
+        height=CHART_H_LG,
         xaxis=dict(categoryorder="array", categoryarray=MONTH_ORDER, showgrid=False, tickfont=dict(size=9)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
-        legend=dict(orientation="h", y=-0.55, font=dict(size=9)),
-        margin=dict(t=4, b=58, l=4, r=4),
+        legend=dict(orientation="h", y=1.02, x=0, font=dict(size=7), bgcolor="rgba(255,255,255,0.7)"),
+        margin=dict(t=25, b=7, l=4, r=4),
         **_D,
     )
     st.plotly_chart(fig4, use_container_width=True)
@@ -401,7 +410,7 @@ with col_c2:
         mode="lines+markers", line=dict(color="#4a7fb5", width=1.8), marker=dict(size=4),
     ))
     fig6.update_layout(
-        height=CHART_H,
+        height=CHART_H_LG,
         xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
         margin=dict(t=4, b=7, l=4, r=4),
@@ -421,7 +430,7 @@ with col_c3:
     ))
     fig7.add_hline(y=0, line_color="#cccccc", line_width=1)
     fig7.update_layout(
-        height=CHART_H,
+        height=CHART_H_LG,
         xaxis=dict(showgrid=False, tickangle=45, tickfont=dict(size=8)),
         yaxis=dict(showgrid=True, gridcolor="#f0f0f0", tickfont=dict(size=9)),
         margin=dict(t=10, b=7, l=4, r=4),
@@ -448,7 +457,7 @@ with col_tbl:
         }),
         use_container_width=True,
         hide_index=True,
-        height=min(28 * (len(tbl2.index) + 2), 400),
+        height=min(16 * (len(tbl2.index) + 2), 300),
     )
 
 # ── Footer ─────────────────────────────────────────────────────────────────────
